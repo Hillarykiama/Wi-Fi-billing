@@ -1,87 +1,87 @@
 import express from "express";
-import { getDb } from "../src/models/db.js";
-import { simulateMpesaPayment } from "../src/services/mpesaMock.js";
-import { simulateMikrotikActivation } from "../src/services/mikrotikMock.js";
+import dbPromise from "../src/models/db.js";
 
 const router = express.Router();
 
-// ✅ Fetch all bills with customer names
+// 📘 Get all bills
 router.get("/", async (req, res) => {
   try {
-    const db = await getDb();
-    const bills = await db.all(`
-      SELECT b.*, c.name AS customer_name
-      FROM bills b
-      JOIN customers c ON b.customer_id = c.id
-    `);
+    const db = await dbPromise;
+    const bills = await db.all("SELECT * FROM bills");
     res.json(bills);
   } catch (error) {
-    console.error("❌ Failed to fetch bills:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("Error fetching bills:", error);
+    res.status(500).json({ error: "Failed to fetch bills" });
   }
 });
 
-// ✅ Simulate M-Pesa payment and Mikrotik activation
-router.post("/:id/pay", async (req, res) => {
-  const { id } = req.params;
+// 📘 Get a single bill by ID
+router.get("/:id", async (req, res) => {
   try {
-    const db = await getDb();
+    const db = await dbPromise;
+    const bill = await db.get("SELECT * FROM bills WHERE id = ?", [req.params.id]);
 
-    // Fetch bill with joined customer name
-    const bill = await db.get(
-      `SELECT b.*, c.name AS customer_name
-       FROM bills b
-       JOIN customers c ON b.customer_id = c.id
-       WHERE b.id = ?`,
-      [id]
-    );
+    if (!bill) return res.status(404).json({ error: "Bill not found" });
+    res.json(bill);
+  } catch (error) {
+    console.error("Error fetching bill:", error);
+    res.status(500).json({ error: "Failed to fetch bill" });
+  }
+});
 
+// 💳 Pay a bill
+router.post("/:id/pay", async (req, res) => {
+  try {
+    const db = await dbPromise;
+    const { id } = req.params;
+
+    // Check if bill exists
+    const bill = await db.get("SELECT * FROM bills WHERE id = ?", [id]);
     if (!bill) {
-      console.error("❌ Bill not found:", id);
       return res.status(404).json({ error: "Bill not found" });
     }
 
-    // 🔧 Ensure we always have the customer name
-    const customerName = bill.customer_name || (
-      await db.get("SELECT name FROM customers WHERE id = ?", [bill.customer_id])
-    )?.name;
+    // Update bill status to 'paid'
+    await db.run("UPDATE bills SET status = 'paid' WHERE id = ?", [id]);
 
-    // 2️⃣ Check if already paid
-    if (bill.status === "paid") {
-      console.log(`⚠️ Bill ${id} already marked as paid`);
-      return res.json({
-        payment: {
-          message: `Bill ${bill.id} is already marked as paid for ${customerName}`,
-          billId: bill.id,
-          amount: bill.amount,
-          status: bill.status,
-        },
-        activation: {
-          message: `Internet activated for ${customerName}`,
-          customerId: bill.customer_id,
-          status: "active",
-        },
-      });
+    // Fetch updated bill
+    const updatedBill = await db.get("SELECT * FROM bills WHERE id = ?", [id]);
+
+    console.log(`✅ Internet activated for ${updatedBill.customer_name}`);
+    res.json({
+      message: `✅ Internet activated for ${updatedBill.customer_name}`,
+      bill: updatedBill,
+    });
+  } catch (error) {
+    console.error("Error updating bill status:", error);
+    res.status(500).json({ error: "Failed to update bill status" });
+  }
+});
+
+// 🧾 Create a new bill
+router.post("/", async (req, res) => {
+  try {
+    const db = await dbPromise;
+    const { customer_name, amount, due_date } = req.body;
+
+    if (!customer_name || !amount || !due_date) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // 3️⃣ Simulate M-Pesa payment
-    const payment = await simulateMpesaPayment(bill);
+    await db.run(
+      "INSERT INTO bills (customer_name, amount, due_date, status) VALUES (?, ?, ?, 'unpaid')",
+      [customer_name, amount, due_date]
+    );
 
-    // 4️⃣ Update bill to "paid"
-    await db.run("UPDATE bills SET status = ? WHERE id = ?", ["paid", id]);
-
-    // 5️⃣ Simulate Mikrotik activation
-    const activation = await simulateMikrotikActivation(bill);
-
-    console.log("✅ Payment and activation completed for:", customerName);
-    res.json({ payment, activation });
+    res.json({ message: "Bill added successfully" });
   } catch (error) {
-    console.error("❌ Payment or activation failed:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("Error creating bill:", error);
+    res.status(500).json({ error: "Failed to create bill" });
   }
 });
 
 export default router;
+
 
 
 
