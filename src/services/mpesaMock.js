@@ -1,30 +1,55 @@
-// src/services/mpesaMock.js
-import db from "../models/db.js";
+// src/services/mpesamock.js
 
-export async function simulateMpesaPayment(bill) {
-  if (!bill || !bill.id) {
-    console.warn("⚠️ simulateMpesaPayment called without valid bill");
-    return { message: "Bill missing or invalid", status: "failed" };
-  }
+import fetch from "node-fetch"; // Ensure installed: npm install node-fetch
+import db from "../../db/db.js"; // Correct DB import
 
-  // If already paid, just return success
-  if (bill.status === "paid") {
-    return {
-      message: `Bill ${bill.id} is already marked as paid for ${bill.customer_name}`,
-      billId: bill.id,
-      amount: bill.amount,
-      status: "paid",
-    };
-  }
+/**
+ * Simulate M-Pesa STK Push
+ * This function:
+ * 1. Returns an immediate STK push response
+ * 2. Sends a mock callback after 3 seconds
+ */
+export async function simulateSTKPush({ phone, amount, transactionId }) {
+  console.log(`💰 Simulating STK Push for transaction ${transactionId}...`);
 
-  // Otherwise mark it as paid
-  await db.run("UPDATE bills SET status = ? WHERE id = ?", ["paid", bill.id]);
+  // Automatically send mock callback after delay
+  setTimeout(async () => {
+    try {
+      const callbackPayload = {
+        transactionId,
+        resultCode: 0, // 0 = SUCCESS
+        resultDesc: "Mock payment successful",
+      };
 
+      const callbackUrl = "http://localhost:4000/api/mpesa/callback"; 
+      // Your server runs on port 4000 — NOT 5000
+
+      await fetch(callbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(callbackPayload),
+      });
+
+      console.log(`✅ Mock callback sent for transaction ${transactionId}`);
+    } catch (err) {
+      console.error("❌ Error sending mock callback:", err);
+    }
+  }, 3000);
+
+  // Immediate response returned to API
   return {
-    message: `M-Pesa payment simulated for ${bill.customer_name}`,
-    billId: bill.id,
-    amount: bill.amount,
-    status: "paid",
+    message: "Mock STK push initiated",
+    phone,
+    amount,
+    transactionId,
   };
 }
+
+
+
+
+
+
+
+
 

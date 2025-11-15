@@ -1,86 +1,110 @@
+// routes/bills.js
 import express from "express";
-import dbPromise from "../src/models/db.js";
+import db from "../db/db.js";
+import { activateInternet, deactivateInternet } from "../src/services/mikrotikMock.js";
+import { simulateSTKPush } from "../src/services/mpesaMock.js";
 
 const router = express.Router();
 
-// 📘 Get all bills
+/**
+ * 🧾 Get all bills
+ * Example: GET /api/bills
+ */
 router.get("/", async (req, res) => {
   try {
-    const db = await dbPromise;
-    const bills = await db.all("SELECT * FROM bills");
+    const bills = await db.all("SELECT * FROM bills ORDER BY created_at DESC");
     res.json(bills);
-  } catch (error) {
-    console.error("Error fetching bills:", error);
+  } catch (err) {
+    console.error("Error fetching bills:", err);
     res.status(500).json({ error: "Failed to fetch bills" });
   }
 });
 
-// 📘 Get a single bill by ID
-router.get("/:id", async (req, res) => {
+/**
+ * 💰 Pay a bill (triggers mock M-Pesa)
+ * Example: POST /api/bills/pay
+ * Body: { billId, phone, amount }
+ */
+router.post("/pay", async (req, res) => {
   try {
-    const db = await dbPromise;
-    const bill = await db.get("SELECT * FROM bills WHERE id = ?", [req.params.id]);
+    const { billId, phone, amount } = req.body;
 
-    if (!bill) return res.status(404).json({ error: "Bill not found" });
-    res.json(bill);
-  } catch (error) {
-    console.error("Error fetching bill:", error);
-    res.status(500).json({ error: "Failed to fetch bill" });
-  }
-});
-
-// 💳 Pay a bill
-router.post("/:id/pay", async (req, res) => {
-  try {
-    const db = await dbPromise;
-    const { id } = req.params;
-
-    // Check if bill exists
-    const bill = await db.get("SELECT * FROM bills WHERE id = ?", [id]);
-    if (!bill) {
-      return res.status(404).json({ error: "Bill not found" });
+    if (!billId || !phone || !amount) {
+      return res.status(400).json({ error: "Missing billId, phone, or amount" });
     }
 
-    // Update bill status to 'paid'
-    await db.run("UPDATE bills SET status = 'paid' WHERE id = ?", [id]);
+    // Generate mock transaction ID
+    const transactionId = `TX${Date.now()}`;
 
-    // Fetch updated bill
-    const updatedBill = await db.get("SELECT * FROM bills WHERE id = ?", [id]);
-
-    console.log(`✅ Internet activated for ${updatedBill.customer_name}`);
-    res.json({
-      message: `✅ Internet activated for ${updatedBill.customer_name}`,
-      bill: updatedBill,
-    });
-  } catch (error) {
-    console.error("Error updating bill status:", error);
-    res.status(500).json({ error: "Failed to update bill status" });
-  }
-});
-
-// 🧾 Create a new bill
-router.post("/", async (req, res) => {
-  try {
-    const db = await dbPromise;
-    const { customer_name, amount, due_date } = req.body;
-
-    if (!customer_name || !amount || !due_date) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
+    // Log to DB
     await db.run(
-      "INSERT INTO bills (customer_name, amount, due_date, status) VALUES (?, ?, ?, 'unpaid')",
-      [customer_name, amount, due_date]
+      `INSERT INTO payments (bill_id, phone, amount, transaction_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+      [billId, phone, amount, transactionId, "PENDING"]
     );
 
-    res.json({ message: "Bill added successfully" });
-  } catch (error) {
-    console.error("Error creating bill:", error);
-    res.status(500).json({ error: "Failed to create bill" });
+    // Trigger mock M-Pesa STK Push
+    const stkResult = await simulateSTKPush({ phone, amount, transactionId });
+
+    res.json({
+      message: "Payment initiated. Awaiting confirmation.",
+      stkResult,
+    });
+  } catch (err) {
+    console.error("Error initiating payment:", err);
+    res.status(500).json({ error: "Failed to initiate payment" });
+  }
+});
+
+/**
+ * 🔌 Activate Internet
+ * Example: POST /api/bills/activate
+ * Body: { deviceId, actionId }
+ */
+router.post("/activate", async (req, res) => {
+  try {
+    const { deviceId, actionId } = req.body;
+
+    if (!deviceId || !actionId) {
+      return res.status(400).json({ error: "Missing deviceId or actionId" });
+    }
+
+    const result = await activateInternet({ deviceId, actionId });
+    res.json(result);
+  } catch (err) {
+    console.error("Error activating internet:", err);
+    res.status(500).json({ error: "Failed to activate internet" });
+  }
+});
+
+/**
+ * 📴 Deactivate Internet
+ * Example: POST /api/bills/deactivate
+ * Body: { deviceId, actionId }
+ */
+router.post("/deactivate", async (req, res) => {
+  try {
+    const { deviceId, actionId } = req.body;
+
+    if (!deviceId || !actionId) {
+      return res.status(400).json({ error: "Missing deviceId or actionId" });
+    }
+
+    const result = await deactivateInternet({ deviceId, actionId });
+    res.json(result);
+  } catch (err) {
+    console.error("Error deactivating internet:", err);
+    res.status(500).json({ error: "Failed to deactivate internet" });
   }
 });
 
 export default router;
+
+
+
+
+
+
 
 
 

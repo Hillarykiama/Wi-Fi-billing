@@ -1,29 +1,66 @@
 // src/services/mikrotikMock.js
-import dbPromise from "../models/db.js";
+import db from "../../db/db.js";
 
-/**
- * Simulates connecting to a Mikrotik router
- * and activating a customer's internet access.
- */
-export async function activateCustomerInternet(customerId) {
-  const db = await dbPromise;
+// ✅ Activate Internet mock (called from bills.js)
+export async function activateInternet({ deviceId, actionId }) {
+  console.log(`🔌 Activating internet for device ${deviceId}, action ${actionId}`);
 
-  const customer = await db.get("SELECT * FROM customers WHERE id = ?", [customerId]);
-  if (!customer) throw new Error("Customer not found");
+  // Insert a new mock record for tracking
+  await db.run(
+    `INSERT INTO mikrotik_actions (device_id, action_id, status, created_at)
+     VALUES (?, ?, ?, datetime('now'))`,
+    [deviceId, actionId, "PENDING"]
+  );
 
-  console.log(`🌐 Simulating Mikrotik activation for ${customer.name}...`);
-
-  // Fake router delay
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-
-  // Log simulated activation
-  console.log(`✅ Internet activated for ${customer.name}`);
+  // Simulate network activation success after 2 seconds
+  setTimeout(async () => {
+    await db.run(
+      `UPDATE mikrotik_actions SET status = ? WHERE device_id = ? AND action_id = ?`,
+      ["COMPLETED", deviceId, actionId]
+    );
+    console.log(`✅ Internet activated successfully for device ${deviceId}`);
+  }, 2000);
 
   return {
-    message: `Internet activated for ${customer.name}`,
-    customerId,
-    status: "active",
+    message: "Internet activation initiated",
+    deviceId,
+    actionId,
+    status: "PENDING",
   };
 }
+
+// ✅ (Optional) Deactivate Internet mock
+export async function deactivateInternet({ deviceId, actionId }) {
+  console.log(`📴 Deactivating internet for device ${deviceId}, action ${actionId}`);
+
+  await db.run(
+    `INSERT INTO mikrotik_actions (device_id, action_id, status, created_at)
+     VALUES (?, ?, ?, datetime('now'))`,
+    [deviceId, actionId, "PENDING"]
+  );
+
+  setTimeout(async () => {
+    await db.run(
+      `UPDATE mikrotik_actions SET status = ? WHERE device_id = ? AND action_id = ?`,
+      ["DISABLED", deviceId, actionId]
+    );
+    console.log(`❌ Internet deactivated for device ${deviceId}`);
+  }, 2000);
+
+  return {
+    message: "Internet deactivation initiated",
+    deviceId,
+    actionId,
+    status: "PENDING",
+  };
+}
+
+
+
+
+
+
+
+
 
 
